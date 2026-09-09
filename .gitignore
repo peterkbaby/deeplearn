@@ -1,0 +1,15 @@
+.env
+*.pem
+cookies.txt
+cookies2.txt
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+deepvenv/
+venv/
+
+
+.vscode/
+.DS_Store
