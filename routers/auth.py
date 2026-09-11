@@ -1,6 +1,6 @@
 from uuid import UUID
 from starlette.requests import Request
-from fastapi import APIRouter, Cookie, Depends, File, Response, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Response, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from database.db import get_session
 from database.users import User
 from schemas.user import (
     OnboardingRequest,
+    ProfilePicResponse,
     TokenResponse,
     UserCreate,
     UserLogin,
@@ -41,7 +42,15 @@ def clear_refresh_cookie(response: Response) -> None:
     )
 
 
-@auth.post("/register", response_model=UserResponse)
+@auth.post("/register", response_model=UserResponse, status_code=201,
+ summary="register a new user",
+ description="Creates a user account. Password must be 6+ chars with upper, lower, digit.",
+    responses={
+        409: {"description": "Email already registered"},
+        422: {"description": "Validation error"},
+        429: {"description": "Rate limit exceeded (3/min)"},
+    },
+    )
 @limiter.limit("3/minute")
 async def create_user(
     request: Request,
@@ -156,3 +165,24 @@ async def upload_profile_picture(
         session, current_user, contents, file.content_type
     )
     return {"detail": "Profile picture uploaded successfully", "profile_pic_url": profile_pic_url}
+
+@auth.get("/profile/pic", response_model=ProfilePicResponse)
+@limiter.limit("20/minute")
+async def get_profile_picture(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> ProfilePicResponse:
+    if not current_user.profile_pic_url:
+        raise HTTPException(status_code=404, detail="No profile picture uploaded")
+    return ProfilePicResponse(profile_pic_url=current_user.profile_pic_url)
+
+
+@auth.delete("/profile/pic")
+@limiter.limit("10/minute")
+async def delete_profile_picture(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await auth_service.delete_profile_picture(session, current_user)
+    return {"detail": "Profile picture deleted successfully"}

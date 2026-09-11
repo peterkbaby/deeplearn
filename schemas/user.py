@@ -1,13 +1,13 @@
 from uuid import UUID
-from pydantic import BaseModel, field_validator, EmailStr
+from pydantic import BaseModel, Field, field_validator, EmailStr
 from datetime import datetime
 from core.enums import Role
 
 
 class UserCreate(BaseModel):
-    name:str
-    email:EmailStr
-    password:str
+    name:str = Field(..., min_length=1, max_length=100, examples=["guru devin"], description="Display name")
+    email:EmailStr = Field(..., examples=["guru@example.com"], description="Email address")
+    password:str = Field(..., description="Min 6 chars, at least one uppercase, one lowercase, one digit")
 
     @field_validator('password')
     @classmethod

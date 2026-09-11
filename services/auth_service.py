@@ -13,7 +13,7 @@ from core.security import (
     hash_password,
     verify_password,
 )
-from core.storage import upload_to_s3
+from core.storage import delete_from_s3, upload_to_s3
 from database.tokens import RefreshToken
 from database.users import User
 from schemas.user import UserCreate, UserLogin
@@ -210,3 +210,11 @@ async def upload_profile_picture(
     user.profile_pic_url = profile_pic_url
     await session.commit()
     return profile_pic_url
+
+
+async def delete_profile_picture(session: AsyncSession, user: User) -> None:
+    """Remove all supported profile-photo variants and clear the user record."""
+    for ext in ("jpg", "png", "webp"):
+        await delete_from_s3(f"profiles/{user.id}.{ext}")
+    user.profile_pic_url = None
+    await session.commit()

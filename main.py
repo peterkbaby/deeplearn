@@ -24,7 +24,26 @@ async def lifespan(app: FastAPI):
     await close_s3(app)
     await close_db(app)
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    title="aiforpeter",
+    description="Auth, Oauth, and user management service",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    openapi_tags=[
+        {"name": "user service","description":"registration, login, and profile"},
+        {"name": "oauth service","description":"oauth authentication"}
+    ],
+    contact={"name": "peter", "email": "peter@gmail.com"},
+    license_info={"name": "MIT"},
+    components={
+        "securitySchemes": {
+            "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
+        }
+    },
+    )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
