@@ -24,6 +24,13 @@ auth = APIRouter(prefix="/user-service", tags=["User Service"])
 
 
 def set_refresh_cookie(response: JSONResponse, token: str) -> None:
+    # Remove the old scoped cookie before setting the shared OAuth/password
+    # cookie. Otherwise browsers can send two refresh_token values after an
+    # upgrade and FastAPI may read the stale one.
+    response.delete_cookie(
+        key=settings.refresh_token_cookie_name,
+        path="/user-service",
+    )
     response.set_cookie(
         key=settings.refresh_token_cookie_name,
         value=token,
@@ -31,11 +38,15 @@ def set_refresh_cookie(response: JSONResponse, token: str) -> None:
         secure=settings.cookie_secure,
         samesite=settings.cookie_samesite,
         max_age=7 * 24 * 60 * 60,  # 7 days in seconds
-        path="/user-service",       # only sent to auth endpoints
+        path="/",
     )
 
 
 def clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=settings.refresh_token_cookie_name,
+        path="/",
+    )
     response.delete_cookie(
         key=settings.refresh_token_cookie_name,
         path="/user-service",

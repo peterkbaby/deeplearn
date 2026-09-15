@@ -1,6 +1,7 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse, RedirectResponse
+from urllib.parse import quote
+from fastapi import APIRouter, Depends
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 from authlib.integrations.starlette_client import OAuthError
@@ -8,30 +9,30 @@ from authlib.integrations.starlette_client import OAuthError
 from core.config import settings
 from core.oauth import oauth
 from database.db import get_session
-from schemas.user import TokenResponse
 from services import oauth_service
 
 router = APIRouter(prefix="/auth", tags=["OAuth"])
 logger = logging.getLogger(__name__)
 
 
-def frontend_origin(request: Request) -> str:
-    """Return a browser-reachable frontend origin for OAuth redirects.
+def frontend_origin() -> str:
+    """Return the configured public frontend origin.
 
-    0.0.0.0 is useful for binding a server socket, but is not a valid public
-    browser destination. This also protects local development when an env var
-    was copied from the uvicorn bind address.
+    OAuth redirect targets are deployment configuration, not request-derived
+    values. In particular, a process bind address such as ``0.0.0.0:3000``
+    must never become a browser redirect target.
     """
-    forwarded_proto = request.headers.get("x-forwarded-proto", "https").split(",")[0].strip()
-    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-    if forwarded_host:
-        return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
-    origin = settings.frontend_url.rstrip("/")
-    return origin.replace("://0.0.0.0", "://localhost")
+    return settings.frontend_url.rstrip("/").replace("://0.0.0.0", "://localhost")
 
 
 
-def set_refresh_cookie(response: JSONResponse, token: str) -> None:
+def set_refresh_cookie(response: Response, token: str) -> None:
+    # Migrate sessions created before password and OAuth flows shared a cookie
+    # path. Keeping both paths produces duplicate Cookie header values.
+    response.delete_cookie(
+        key=settings.refresh_token_cookie_name,
+        path="/user-service",
+    )
     response.set_cookie(
         key=settings.refresh_token_cookie_name,
         value=token,
@@ -54,20 +55,21 @@ async def google_login(request: Request):
 async def google_callback(
     request: Request,
     session: AsyncSession = Depends(get_session),
-) -> TokenResponse:
+) -> RedirectResponse:
     try:
         token = await oauth.google.authorize_access_token(request)
     except OAuthError as e:
         logger.error("OAuth Error: %s", e)
-        return RedirectResponse(f"{frontend_origin(request)}/login?oauth_error=1")
+        return RedirectResponse(f"{frontend_origin()}/login?oauth_error=1")
 
     user_info = token.get("userinfo")
     access_token, refresh_token = await oauth_service.process_google_user(session, user_info)
 
-    # The access token is short-lived and immediately consumed by the frontend
-    # callback, which replaces the URL before rendering the authenticated app.
+    # The fragment is never sent to Nginx or written to server access logs.
+    # FastAPI owns the refresh cookie; the frontend only stores the short-lived
+    # access token after this redirect.
     response = RedirectResponse(
-        f"{frontend_origin(request)}/auth/callback?access_token={access_token}"
+        f"{frontend_origin()}/auth/complete#access_token={quote(access_token)}"
     )
     set_refresh_cookie(response, refresh_token)
     return response
